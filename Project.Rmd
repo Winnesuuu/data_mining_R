@@ -1,0 +1,386 @@
+---
+title: "INFS 494 - Data Mining - Final project"
+author: "Xinyun Cui, Yifei Gao, Wenying Su"
+date: "7/13/2018"
+output: html_document
+---
+
+**Why you are looking at this data set?**
+
+The film industry is huge, generating in excess of 11.07 billion revenue in the USA in 2017. According to PwC study, the movie business will struggle over the next five years. Movie companies are facing significant pressures on growth. In this landscape, it is important to understand what factors contribute to define a good movie and achieve commercial success. 
+
+
+**What business question is driving the analysis?**
+
+A movie producer can utilize this data to decide what type of movie they choose to produce, which director and actor the can hire to produce a movie, and what issues they need to pay attention to produce a popular and profitable movie. 
+
+**How did you manipulate the original data?**
+
+In our data cleaning and transformation process, we removed duplicates, blank items and NA values which reduced the data to 3739 observations out of the 5043 observation that were originally there. Then, we created a new feature named `sub_genres` to which we assigned all the values of the feature `genres`. We nullified `genres` and then assigned new values to it. These values where the first word extracted from `sub_genres`. For example, if the sub genre is `Action|Crime|Thriller`, the first word `Action` was the genre of the film. As a result, movies are chiefly categorised into 17 main genres instead of 914 sub genres. We also removed irrelevant columns which include `movie_imdb_link` and `plot_keywords`. The reason why we do not need these two columns is that they contain too many characters which are of no practical help. In addition, we created a new feature called `total_facebook_likes`, which sums the total number of facebook likes for the director and the entire cast of a movie.
+
+**Data Analysis Techniques Used**
+
+Linear regression, cluster analysis, logistic regression and classification tree.
+
+
+#Internet Movie Database Analysis in R
+## Data cleaning and transformation
+```{r}
+# load necessary libraries
+library(tidyr)
+library(car)
+library(corrplot)
+library(caret)
+library(ggplot2)
+library(stringr)
+
+# load and dataset
+movie <- read.csv("movie_metadata.csv")
+
+# remove duplicates if any
+movie <- movie[!duplicated(movie), ]
+
+# remove na values
+movie <- na.omit(movie)
+
+# remove blank fields
+movie <- movie[which(!(movie$director_name == "" | movie$color == "" | movie$language == "" | movie$content_rating == "" | movie$plot_keywords == "")),]
+
+summary(movie)
+str(movie)
+
+# convert name to character feature
+movie$director_name <- as.character(movie$director_name)
+movie$actor_2_name <- as.character(movie$actor_2_name)
+movie$actor_1_name <- as.character(movie$actor_1_name)
+movie$actor_3_name <- as.character(movie$actor_3_name)
+
+# extract genres from sub genres
+movie$sub_genres <- movie$genres 
+movie$genres <- NULL
+movie$genres <- factor(str_extract(movie$sub_genres, pattern = "^[a-zA-Z]*"))
+
+# create a new feature called total_facebook_likes
+movie$total_facebook_likes <- movie$director_facebook_likes + 
+movie$actor_3_facebook_likes + movie$actor_1_facebook_likes +
+movie$cast_total_facebook_likes + movie$actor_2_facebook_likes
+
+# remove irrelevant columns
+movie<-movie[,-c(16,17)]
+
+# assign gross to two levels, greater than median is 1 or less than median is 0
+gross01<-rep(0, length(movie$gross))
+gross01[movie$gross > median(movie$gross)] = 1
+
+# add column in movie dateframe
+movie<- data.frame(movie, gross01)
+
+# convert it to factor
+movie$gross01<- as.factor(movie$gross01)
+```
+
+
+
+## Analysis of Correlations
+```{r}
+# plot correlations between variables and response.
+library(corrplot)
+M1<- cor(movie[,c(3,4,9,12,15,16,20,21,23,24,28)])
+corrplot(M1, method = "square")
+```
+
+Since blue indicates positive correlations, there are potentially a lot of positive relationships between our predictors. The darker and fuller the square, the stronger the relationship, so what we can infer from this plot is that a movie's gross is possibly related to the number of its reviews and voters. What??s more, the duration, imdb score and the number of facebook likes for the cast can also contribute to the gross.
+
+
+## Multiple Linear Regression
+```{r}
+# Use the lm() function to perform a multiple linear regression with gross as the response and relevant variables as the predictors.
+lm.1<- lm(movie$gross~movie$color+movie$num_critic_for_reviews+movie$duration+movie$num_voted_users+movie$facenumber_in_poster+movie$num_user_for_reviews+movie$language+movie$content_rating+movie$budget+movie$title_year+movie$imdb_score+movie$aspect_ratio+movie$genres+movie$total_facebook_likes+movie$country)
+
+# Use the summary() function to print the results.
+summary(lm.1)
+
+# Use the plot() function to show the goodness of fit.
+par(mfrow=c(2,2)) 
+plot(lm.1)
+```
+
+According to the results, there is a relationship between the predictors and the response. We can see this by the F-statistic which is far from 1 (with a small p-value), indicating evidence against the null hypothesis, which means there is a relationship between the predictors and the response.
+
+Looking at the p-values associated with each predictor??s t-statistic, we see that color, num_for_reviews, budget, duration and genres have a statistically significant relationship with gross.   
+
+The R-Squared of 0.5536 tells us that over 55.36% of the variance in `gross` is explained by this model. It may not be a decent value as we expected. However, the plot indicates that the model is fair goodness of fit. The reason why we did not get a decent R-Squared may be that the range of gross is wide and it has a lot of outliers.
+
+
+
+
+## Cluster Analysis
+
+In this part, we use kmeans analysis between the variable `imdb_score` and `gross`. 
+
+```{r}
+library(datasets)
+library(ggplot2)
+data(movie)
+head(movie)
+# select the variables to be clusted
+movie.clusterVariables<- c("imdb_score","gross")
+# run kmeans on the scaled data with a high enough nstart for k=2 through k=13
+set.seed(737900)
+movie.kmeans.2<- kmeans(scale(movie[,movie.clusterVariables]), centers = 2, nstart=50)
+movie.kmeans.3<- kmeans(scale(movie[,movie.clusterVariables]), centers = 3, nstart=50)
+movie.kmeans.4<- kmeans(scale(movie[,movie.clusterVariables]), centers = 4, nstart=50)
+movie.kmeans.5<- kmeans(scale(movie[,movie.clusterVariables]), centers = 5, nstart=50)
+movie.kmeans.6<- kmeans(scale(movie[,movie.clusterVariables]), centers = 6, nstart=50)
+movie.kmeans.7<- kmeans(scale(movie[,movie.clusterVariables]), centers = 7, nstart=50)
+movie.kmeans.8<- kmeans(scale(movie[,movie.clusterVariables]), centers = 8, nstart=50)
+movie.kmeans.9<- kmeans(scale(movie[,movie.clusterVariables]), centers = 9, nstart=50)
+movie.kmeans.10<- kmeans(scale(movie[,movie.clusterVariables]), centers = 10, nstart=50)
+movie.kmeans.11<- kmeans(scale(movie[,movie.clusterVariables]), centers = 11, nstart=50)
+movie.kmeans.12<- kmeans(scale(movie[,movie.clusterVariables]), centers = 12, nstart=50)
+movie.kmeans.13<- kmeans(scale(movie[,movie.clusterVariables]), centers = 13, nstart=50)
+# print the VAF table
+(kmeans.solution <- data.frame(k = 2:13, VAF = c(
+    movie.kmeans.2$betweenss/movie.kmeans.2$totss,
+    movie.kmeans.3$betweenss/movie.kmeans.3$totss,
+    movie.kmeans.4$betweenss/movie.kmeans.4$totss,
+    movie.kmeans.5$betweenss/movie.kmeans.5$totss,
+    movie.kmeans.6$betweenss/movie.kmeans.6$totss,
+    movie.kmeans.7$betweenss/movie.kmeans.7$totss,
+    movie.kmeans.8$betweenss/movie.kmeans.8$totss,
+    movie.kmeans.9$betweenss/movie.kmeans.9$totss,
+    movie.kmeans.10$betweenss/movie.kmeans.10$totss,
+    movie.kmeans.11$betweenss/movie.kmeans.11$totss,
+    movie.kmeans.12$betweenss/movie.kmeans.12$totss,
+    movie.kmeans.13$betweenss/movie.kmeans.13$totss
+)))
+# print the Scree Plot
+plot(VAF~k, data = kmeans.solution, type = 'o', main = "Scree Plot", pch=16,
+    col="steelblue2")
+```
+
+As we can see in the VAF summary, the VAF increases very slightly after k=3, and increases lesser after k=4. Based on the VAF and Scree Plot, according to the elbow rule, we choose the best kmeans as K=4.
+
+```{r}
+# plot the 3 cluster solution
+movie.kmeans.3$cluster <- as.factor(movie.kmeans.3$cluster)
+ggplot(movie, aes(gross, imdb_score, color = movie.kmeans.3$cluster)) + geom_point()
+```
+
+We scale the `imdb_score` and `gross` in the above analysis. Now we rescaled the variable to their original number and analyze their actual mean. 
+
+```{r}
+library(dplyr)
+# generate a k-means solution
+o.3= order(movie.kmeans.3$cluster)
+tbl_df(data.frame(movie[o.3,movie.clusterVariables], 
+                  cluster.no = movie.kmeans.3$cluster[o.3])) %>% 
+    group_by(cluster.no) %>% summarise(mean(imdb_score), mean(gross))
+
+```
+
+As the table above, we can see in the cluster 1, when the score mean is 7.157, the gross mean is 211,491,193 dollars. In the cluster 2, when the score mean is 7.0, the mean is 33,050,205 dollars. In the cluster 3, when the score mean is 5.3, the gross mean is 33,683,624 dollars. 
+
+The table shows that, when the score is lower than 7.016, the goss for a movie is very similar. When the score reaches 7.15, the gross maybe 7 times more. 
+
+However, the plot shows there is plenty of movies which score is higher than 7.0 even 7.5, but their gross is very low. What's more, we can also see the movie that has a high gross also got a high score. 
+
+Based on this cluster analysis, we can conclude that people are more willing to pay for high score movies. When the score is below 7.0, they may treat the movie as a bad movie, and not willing to pay for them.  The movie that has low score cannot create high gross, but a high score is not a guarantee for high gross. 
+
+Movie producer needs to pay attention to the movie that has a high score but low gross. They need to figure out why people are not willing to pay for them even though that movie has a high score. It might be related to the type of the movie, or the movie released online first, or the movie is an old movie that hard to collect data. There is one permanent rule for the movie industry, if you want to create a high gross movie, the movie score must be high.
+
+
+
+
+## Logistic Regression
+
+```{r}
+#Fit a regression model use some features we predict from movie dataframe
+set.seed(737900)
+splitIndex <- sample(nrow(movie), size=2560, replace=F)
+trainDF <- movie[ splitIndex,]
+testDF <- movie[-splitIndex,]
+```
+
+```{r}
+glm.fit<- glm(gross01~imdb_score+budget+ num_voted_users+num_user_for_reviews+total_facebook_likes+ genres+ duration+facenumber_in_poster+language+title_year, data = trainDF, family = binomial(link = logit))
+summary(glm.fit)
+```
+
+**Interpreting Coefficients - Intercept**
+
+- Let's pretend we have a movie with zero `imdb_score`, `budget`, `num_voted_users`, `num_user_for_reviews`, `content_rating`, `genres`, `total_facebook_likes`, `duration`, `facenumber_in_poster`, `language`, `country`, `title_year`, `genres`.We would then say that our log odds ratio = 25.99. We can convert odds to probability: probability = odds / (1 + odds)= **77%**. Thus, according to our model, there is a probability of close to 1. it is an high probability that our movie has a gross above the median.
+
+**Interpreting Coefficients - General**
+
+- We can interpret relationship to the log odds of our response.
+ex.:`title_year` = -0.02124.
+
+- We can loosely interpret this as meaning: as `title_year` increases by 1 the log odds that gross01=1 decreased by 0.02124.
+
+- We could see the `glm.fit1` model reduce the deviance by `Residual deviance`, which decresed null devicance from 3548.9 to 2410.6. Therefore, It is good linear regression model. The residual deviance of `glm.fit1` was on left of median which is less than degrees of freedom. It indicates this model explained of the variance as we expect. However, this model might be overdispersion.
+
+
+#### Confusion Matrix
+
+- We made the confustion matrix the threshold at 50% probability to predict `gross` variable.
+
+```{r}
+Predict <- glm.fit$fitted.values
+Predict[Predict>=0.5] <- 1
+Predict[Predict<0.5] <- 0
+table(trainDF$gross01, Predict)
+```
+
+```{r}
+round(prop.table(table(trainDF$gross01, Predict),1),2)
+```
+
+- Calculate Sensitivity and Specificity in `trainDF`.
+
+  Sensitivity = TPR = TP/(TP+FN)= 944/(337+944)=73.69%
+
+  Specificity = TNR = TN/(TN+FP)= 1066/(1066+213)=83.34%
+
+- As the result, we could say this is a good model since both sensitivity adn specificity are greater than 50%. Moreover, this model is good at predicting the low gross movie, because 84%>74%.
+
+#### Plot out the ROC
+```{r}
+library(pROC)
+plot(roc(trainDF$gross01, glm.fit$fitted.values))
+auc(trainDF$gross01, glm.fit$fitted.values)
+```
+
+- ROC plot also could prove our model is good. ROC is close to top left corner, which means accuracy is high. The area under the curve is 87% which is extremely high.---"The larger the area, the better the model".
+
+#### Hold-out Analysis 
+```{r}
+log.test <- predict(glm.fit, newdata = testDF, type = "response")
+log.test[log.test>=0.5] <- 1
+log.test[log.test<0.5] <- 0
+
+# Print the confusion matrix
+table(testDF$gross01, log.test)  
+```
+
+```{r}
+round(prop.table(table(testDF$gross01, log.test),1),2)
+```
+
+- Calculate Sensitivity and Specificity in `testDF`.
+
+  Sensitivity = TPR = TP/(TP+FN)= 384/(384+168)=69.56%
+
+  Specificity = TNR = TN/(TN+FP)= 462/(462+92)=83.39%
+
+- Compared with the Confusion matrix with `trainDF` dataset(sensitivity=74%, specificity= 83%), the results in `testDF` is not drop much(sensitivity=70%, specificity=83%). Therefore, we could say this model is great and stable.
+
+
+Next, we tried to conduct a classification tree to see if there is relevant information for analysis.
+
+
+
+## Classification Tree
+
+```{r}
+library(rpart)
+library(rpart.plot)
+```
+
+```{r}
+tree<-rpart(formula = trainDF$gross01~trainDF$imdb_score+trainDF$budget+ trainDF$num_voted_users+trainDF$num_user_for_reviews+ trainDF$genres+trainDF$total_facebook_likes, control = rpart.control(cp=0,minsplit=30,xval=10))
+par(mai=c(0.1,0.1,0.1,0.1))
+plot(tree, main = "Classification tree: movie data", col=3, compress=TRUE,branch=0.2,uniform=TRUE)
+text(tree,cex=0.6,col=4,use.n=TRUE,fancy=TRUE,fwidth=0.6,fheight=0.4,bg=c(5))
+```
+
+- We could see there are too many nodes and the full tree is not organized, so that it is difficult for us to figure out the relationship from each branch. Thus, we decided to create a pruned tree with less information.
+
+```{r}
+table(trainDF[,"gross01"],predict(tree,type="class"))
+```
+
+```{r}
+round(prop.table(table(trainDF[,"gross01"],predict(tree,type="class")),1),2)
+```
+
+- After the calculation of the sensitivity and specificity:
+
+  Sensitivity= 1080/(201+1080)= 84.31%
+
+  Specificity= 1092/(1092+187)= 85.38%
+
+- Both sensitivity and specificity is over 80%. It is great to predict the high or low gross of moive.
+
+
+**Let's look at pruned tree**
+```{r}
+printcp(tree)
+```
+
+```{r}
+plotcp(tree,minline=TRUE,col=4)
+```
+
+- Based on visual analysis of the plots, we selected a complexity parameter value
+of 0.00469116 due to the fact that it results in the smallest x-value relative error.
+
+```{r}
+set.seed(737900)
+tree.2 <- rpart(formula=trainDF$gross01~trainDF$imdb_score+trainDF$budget+ trainDF$num_voted_users+trainDF$num_user_for_reviews+ trainDF$genres+trainDF$total_facebook_likes,
+control=rpart.control(cp=0.00469116,minsplit=30,xval=10))
+par(mai=c(0.1,0.1,0.1,0.1))
+plot(tree.2,main="Classification Tree version 2: Movie Data",col=3, compress=TRUE,
+branch=0.2,uniform=TRUE)
+text(tree.2,cex=0.6,col=4,use.n=TRUE,fancy=TRUE,fwidth=0.4,fheight=0.4,bg=c(5))
+```
+
+**There are 10 splits and 12 leaf nodes in the pruned tree.**
+
+
+#### Model Performance and Holdout Analysis
+```{r}
+table(trainDF[,"gross01"],predict(tree,type="class"))
+```
+
+```{r}
+round(prop.table(table(trainDF[,"gross01"],predict(tree,type="class")),1),2)
+```
+
+
+```{r}
+table(trainDF[,"gross01"],predict(tree.2,type="class"))
+```
+
+```{r}
+round(prop.table(table(trainDF[,"gross01"],predict(tree.2,type="class")),1),2)
+```
+
+  Sencitivity= 1022/(259+1022)= 79.78%
+
+  Specificity= 1054/(1054+225)= 82.41%
+
+- Compared with the full tree model, the sencitivity of pruned tree model decreased 4% and specificity of pruned tree decreased 5%. Thus, full tree model might better to predict `gross`. However, pruned tree is much easier to interpret than full tree model. Since it is not big difference, we could say this model is stable.
+
+
+
+### Conclusions and business insights
+
+- The linear regression model shows that the public praise and the cast are important to a movie, which means famous actors and directors tend to bring more profits. In addition, the influence of a movie genre on its profit can be as important as the cast, some specific genres such as crime and comedy can bring promising profit. Therefore, if a filmmaker wants to maximize the profit, he or she should focus on such promising genres. 
+
+- In the clustering analysis, we observe that people are much more willing to pay for the "good" movie that has a imdb score over 7. However, some high-score movies may not have a high gross. Hence, movie producer should to pay attention to those movie that has a high imdb score but a low gross. They can do further research to figure out why people are not willing to pay for a good movie even though that movie has a high score. It may be related to the niche-market genre of the movie, or the movie is prematurely released online, or the movie is an old movie that its gross cannot be compared with current movies because of the currency inflation.
+
+- In the logistic regression model, we found that `gross` has a significant relationship with `budget`, `num_voted_user` and `title_year`. When these variables decrease or increase will affect the probability that a movie has gross above or below the median. After the hold-out analysis, the confusion matrix is a great and stable model which could both to predict high and low gross of a movie.
+
+- In the classification tree analysis, although the full tree model has a slightly higher probability to predict correctly than the pruned tree model, it is a small difference which could be ignored. The pruned tree is easier to interpret than the full tree model, so we think the pruned tree model is the better one.
+
+
+### Area for improvement 
+
+- We believe we can have a more suitable model to analyze our data and get a more predictable result, but we need more time to explore it.
+
+- We have some old movies that may be difficult to show their significative gross in the imdb dataset. We could access more data from other sources.
+
+- For the next step of our research, we can improve our linear regression by using stepAIC of MASS package to select the most informative variables that with decent p-values and get a better R-squared.
+
+- We can also apply the association rules to the further research. For example, we can set specific popular director's and actor's name to see how many times they appeared together in our dataset, and explore their potential impact on the movie's gross.
